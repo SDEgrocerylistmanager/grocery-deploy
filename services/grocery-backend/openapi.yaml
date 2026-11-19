@@ -1,0 +1,527 @@
+# =============================================================================
+# CONTRATTO API del Grocery Backend.
+# Struttura del file:
+#   info/servers/security -> metadati e autenticazione globale
+#   paths                 -> gli endpoint (URL + metodi + risposte)
+#   components            -> pezzi riusabili (schemi JSON, errori, parametri)
+# "$ref: '#/components/...'" significa "usa la definizione scritta in components".
+# =============================================================================
+openapi: 3.0.3   # versione della specifica OpenAPI (non la versione della nostra API)
+info:
+  title: Grocery Backend API
+  version: 1.0.0
+  description: |
+    Business-logic + data-access service for grocery lists.
+    Only this service talks to PostgreSQL.
+
+    Every endpoint requires `Authorization: Bearer <JWT>` issued by Authentik.
+    The user id is the `sub` claim. The user row is created on the first
+    authenticated request (upsert). A list that belongs to someone else
+    returns 403; a list that does not exist returns 404.
+
+# Indirizzo base del servizio (porta provvisoria, da concordare).
+servers:
+  - url: http://localhost:8001
+    description: Local (docker compose)
+
+# Autenticazione GLOBALE: tutti gli endpoint richiedono il JWT.
+# Lo schema "bearerAuth" e' definito in components/securitySchemes.
+security:
+  - bearerAuth: []
+
+# Tag: servono solo a raggruppare gli endpoint nella documentazione (Swagger UI).
+tags:
+  - name: Me
+  - name: Lists
+  - name: Items
+  - name: Suggestions
+  - name: History
+
+# =============================================================================
+# ENDPOINT
+# =============================================================================
+paths:
+  # --- Utente corrente (tabella users) ---------------------------------------
+  # L'utente e' identificato dal "sub" del JWT: non si passa mai un id nell'URL.
+  /me:
+    get:
+      tags: [Me]
+      summary: Profile of the authenticated user
+      operationId: getMe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+              example: { id: "a1b2c3", email: "mario@example.com", telegram_chat_id: "123456789" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Me]
+      summary: Update profile (e.g. set the Telegram chat id)
+      operationId: updateMe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserUpdate" }
+            example: { telegram_chat_id: "123456789" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # --- Liste (tabella lists) -------------------------------------------------
+  # Collezione: elenco e creazione. L'owner e' sempre l'utente del JWT.
+  /lists:
+    get:
+      tags: [Lists]
+      summary: Lists owned by the user (newest first)
+      operationId: getLists
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/GroceryList" }
+              example:
+                - { id: 12, name: "Spesa settimanale", last_shared_at: null }
+                - { id: 9, name: "Festa sabato", last_shared_at: "2026-11-10T18:30:00Z" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Lists]
+      summary: Create a list
+      operationId: createList
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ListCreate" }
+            example: { name: "Spesa settimanale" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroceryList" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # Singola lista. {listId} e' un parametro di percorso, definito una volta sola
+  # qui sotto in "parameters" e valido per get/patch/delete.
+  # 403 = la lista esiste ma e' di un altro; 404 = non esiste.
+  /lists/{listId}:
+    parameters:
+      - $ref: "#/components/parameters/ListId"
+    get:
+      tags: [Lists]
+      summary: A single list with its items
+      operationId: getList
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroceryListDetail" }
+              example:
+                id: 12
+                name: "Spesa settimanale"
+                last_shared_at: null
+                items:
+                  - { id: 101, name: "Latte", quantity: 2, unit: "l", category: "Dairy", checked: false }
+                  - { id: 102, name: "Pane", quantity: 1, unit: null, category: "Bakery", checked: true }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Lists]
+      summary: Rename a list
+      operationId: updateList
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ListCreate" }
+            example: { name: "Spesa di domenica" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroceryList" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Lists]
+      summary: Delete a list and its items (history is kept)
+      operationId: deleteList
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # Azione (non una risorsa): aggiorna lists.last_shared_at.
+  # Lo chiama l'Orchestrator DOPO che il Telegram Adapter ha inviato il messaggio.
+  /lists/{listId}/shared:
+    parameters:
+      - $ref: "#/components/parameters/ListId"
+    post:
+      tags: [Lists]
+      summary: Record that the list was shared (sets last_shared_at = now)
+      description: Called by the Orchestrator after a successful Telegram send.
+      operationId: markListShared
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroceryList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Elementi (tabella list_items) -----------------------------------------
+  # Annidati sotto la lista: l'URL esprime gia' a chi appartengono.
+  /lists/{listId}/items:
+    parameters:
+      - $ref: "#/components/parameters/ListId"
+    get:
+      tags: [Items]
+      summary: Items of a list
+      operationId: getItems
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Item" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Items]
+      summary: Add an item
+      description: |
+        Deduplication: if an item with the same name (case and surrounding
+        spaces ignored) already exists in the list, the quantity is summed
+        and the existing item is returned with status 200.
+        The product history is updated in both cases.
+      operationId: addItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ItemCreate" }
+            example: { name: "Latte", quantity: 2, unit: "l", category: "Dairy" }
+      responses:
+        "201":
+          description: New item created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Item" }
+        "200":
+          description: Duplicate, quantity summed on the existing item
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Item" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # PATCH = modifica parziale (si inviano solo i campi da cambiare).
+  # DELETE = cancellazione vera dell'item; lo storico (product_history) resta.
+  /lists/{listId}/items/{itemId}:
+    parameters:
+      - $ref: "#/components/parameters/ListId"
+      - $ref: "#/components/parameters/ItemId"
+    patch:
+      tags: [Items]
+      summary: Edit an item (name, quantity, unit, category, checked)
+      operationId: updateItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ItemUpdate" }
+            example: { quantity: 3, checked: true }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Item" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Renaming would create a duplicate of another item in the list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [Items]
+      summary: Remove an item (hard delete; history is kept)
+      operationId: deleteItem
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Suggerimenti (calcolati da product_history, vedi queries 3 e 4) -------
+  /lists/{listId}/suggestions:
+    parameters:
+      - $ref: "#/components/parameters/ListId"
+    get:
+      tags: [Suggestions]
+      summary: Products to suggest for this list
+      description: |
+        Products already in the list are excluded.
+        - `recent`: latest products added by the user, favorites first.
+        - `previous_list`: products added in the user's previous list.
+      operationId: getSuggestions
+      parameters:
+        - name: mode
+          in: query
+          schema: { type: string, enum: [recent, previous_list], default: recent }
+        - name: prefix
+          in: query
+          description: Only for `recent`; filters names starting with this text.
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Suggestion" }
+              example:
+                - { name: "Uova", category: "Dairy", default_quantity: 6, unit: null }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --- Storico / preferiti (tabella product_history) -------------------------
+  # Persistente: non dipende dagli item. Qui l'utente rivede i prodotti passati
+  # e segna i preferiti.
+  /history:
+    get:
+      tags: [History]
+      summary: Product history of the user (persistent, survives deletions)
+      operationId: getHistory
+      parameters:
+        - name: favorites_only
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HistoryEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /history/{historyId}:
+    parameters:
+      - name: historyId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    patch:
+      tags: [History]
+      summary: Mark / unmark a product as favorite
+      operationId: updateHistoryEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_favorite]
+              properties:
+                is_favorite: { type: boolean }
+            example: { is_favorite: true }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistoryEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+# =============================================================================
+# COMPONENTI RIUSABILI (richiamati con $ref)
+# =============================================================================
+components:
+  # Dice come ci si autentica: header "Authorization: Bearer <JWT>".
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # Parametri di percorso riusati in piu' endpoint.
+  # Gli id sono bigint nel DB, quindi integer/int64.
+  parameters:
+    ListId:
+      name: listId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+
+  # Risposte d'errore standard: tutte con lo stesso corpo {error, message}.
+  responses:
+    BadRequest:
+      description: Invalid body (empty name, quantity <= 0, unknown category...)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "bad_request", message: "quantity must be greater than 0" }
+    Unauthorized:
+      description: Missing, expired or invalid JWT
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "unauthorized", message: "Token expired" }
+    Forbidden:
+      description: The resource belongs to another user
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "forbidden", message: "You do not own this list" }
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "not_found", message: "List not found" }
+
+  # Schemi JSON. Convenzione: X = quello che il server restituisce,
+  # XCreate / XUpdate = quello che il client invia (senza id, campi opzionali).
+  schemas:
+    # Stesso elenco del CHECK nello schema SQL: se cambia li', va cambiato qui.
+    Category:
+      type: string
+      enum: [Dairy, Produce, Household, Bakery, Other]
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+
+    User:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, description: "JWT sub claim" }
+        email: { type: string, nullable: true }
+        telegram_chat_id: { type: string, nullable: true }
+
+    UserUpdate:
+      type: object
+      properties:
+        telegram_chat_id: { type: string, nullable: true }
+
+    GroceryList:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        last_shared_at: { type: string, format: date-time, nullable: true }
+
+    # Una lista + i suoi item. "allOf" = tutti i campi di GroceryList
+    # piu' il campo "items".
+    GroceryListDetail:
+      allOf:
+        - $ref: "#/components/schemas/GroceryList"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Item" }
+
+    ListCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+
+    Item:
+      type: object
+      required: [id, name, quantity, category, checked]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        quantity: { type: number, exclusiveMinimum: true, minimum: 0 }
+        unit: { type: string, nullable: true }
+        category: { $ref: "#/components/schemas/Category" }
+        checked: { type: boolean }
+
+    ItemCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        quantity: { type: number, exclusiveMinimum: true, minimum: 0, default: 1 }
+        unit: { type: string, nullable: true }
+        category: { $ref: "#/components/schemas/Category" }
+
+    # PATCH: tutti i campi sono opzionali, ma ne serve almeno uno (minProperties).
+    ItemUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        quantity: { type: number, exclusiveMinimum: true, minimum: 0 }
+        unit: { type: string, nullable: true }
+        category: { $ref: "#/components/schemas/Category" }
+        checked: { type: boolean }
+
+    Suggestion:
+      type: object
+      required: [name, category, default_quantity]
+      properties:
+        name: { type: string }
+        category: { $ref: "#/components/schemas/Category" }
+        default_quantity: { type: number }
+        unit: { type: string, nullable: true }
+
+    HistoryEntry:
+      type: object
+      required: [id, name, category, default_quantity, times_added, last_added_at, is_favorite]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        category: { $ref: "#/components/schemas/Category" }
+        default_quantity: { type: number }
+        unit: { type: string, nullable: true }
+        times_added: { type: integer }
+        last_added_at: { type: string, format: date-time }
+        is_favorite: { type: boolean }

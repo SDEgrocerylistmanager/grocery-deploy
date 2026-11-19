@@ -74,12 +74,12 @@ flowchart TD
         SSOOrch["🔐 SSO Authentication<br/>(OAuth 2.0 / OIDC)"]:::process
     end
     
-    Keycloak(("🔐 Authentik SSO<br/>(OIDC / JWT)")):::ext
+    Authentik(("🔐 Authentik SSO<br/>(OIDC / JWT)")):::ext
 
     WebUI -->|"REST + Bearer JWT"| GOrch
     WebUI -->|"Authentication Flow"| SSOOrch
-    SSOOrch -->|"OIDC Protocol"| Keycloak
-    WebUI -->|"OIDC Login & JWT"| Keycloak
+    SSOOrch -->|"OIDC Protocol"| Authentik
+    WebUI -->|"OIDC Login & JWT"| Authentik
 
     %% Layer 3: Business Logic Services
     subgraph LOGIC_LAYER ["Business Logic Layer"]
@@ -131,7 +131,7 @@ The **Grocery Orchestrator** is our primary process-centric service that compose
 When a user interacts with their grocery list through the Web UI (creating items, modifying them, deleting them, or clicking *"Share Organized List on Telegram"*), the `Grocery Orchestrator` coordinates the entire process:
 
 1. **Authentication & Ownership**: First ensures the user owns the list via `Grocery Backend` and JWT validation
-2. **Data Operations**: Retrieves or modifies list items through the `Data Service`
+2. **Data Operations**: Retrieves or modifies list items through the `Grocery Backend`
 3. **Categorization**: Passes items to the `Categorizer Service` for organization by supermarket aisle (making shopping easier)
 4. **Sharing**: When requested, triggers the `Telegram Adapter` to deliver the formatted message
 5. **Persistence**: Records sharing timestamps and maintains item history in the database
@@ -145,7 +145,7 @@ The orchestrator supports complete CRUD operations on grocery items:
 ---
 
 ## 5. Authentication and Security
-Authentication is handled via **OAuth 2.0 / OpenID Connect (OIDC)** using a dedicated **Keycloak** instance.
+Authentication is handled via **OAuth 2.0 / OpenID Connect (OIDC)** using a dedicated **Authentik** instance.
 
 * **Login Flow:** Users authenticate directly against Authentik and receive a signed **JWT (JSON Web Token)**. The Web UI never handles raw passwords.
 * **JWT Validation:** Every protected microservice validates incoming `Authorization: Bearer <JWT>` headers by verifying the cryptographic signature against Authentik's public keys, checking expiration (`exp`), and extracting the user identifier (`sub`).
@@ -161,7 +161,7 @@ Authentication is handled via **OAuth 2.0 / OpenID Connect (OIDC)** using a dedi
 | Category | Technology | Role in the Project |
 | :--- | :--- | :--- |
 | **Database** | PostgreSQL | Relational database engine for data persistence. |
-| **Frontend** | Responsive Web UI | Desktop and mobile interface integrated with Keycloak OIDC. |
+| **Frontend** | Responsive Web UI | Desktop and mobile interface integrated with Authentik OIDC. |
 | **Authentication** | Authentik | OpenID Connect SSO provider. |
 | **External APIs** | Telegram Bot API, healthchecks.io | External integrations encapsulated behind dedicated Adapter services. |
 | **CI/CD** | GitHub Actions | Runs automated unit/integration tests and builds Docker images on every push/PR. |
@@ -180,7 +180,8 @@ Each service repository includes automated tests executed by **GitHub Actions** 
 * **End-to-End Workflows:** Complete tests for the two Process-Centric orchestration scenarios.
 
 ### 7.2 Documentation & Final Deliverables
-* **Independent GitHub Repositories:** Separate repositories for each microservice plus a central deployment repository containing the `docker-compose.yml` and configuration instructions.
+* **Multi-Repository Organization:** Every service lives in its own repository inside the GitHub organization (`grocery-frontend`, `grocery-orchestrator`, `grocery-sso-service`, `grocery-backend`, `grocery-categorizer`, `grocery-telegram-adapter`, `grocery-healthcheck-adapter`). Each repository has its own CI/CD pipeline that tests the service and publishes its image to GHCR.
+* **Deployment Repository (`grocery-deploy`):** This repository contains the root `docker-compose.yml` (pulling the service images from GHCR), the database init scripts under `db/init/`, `.env.example`, and the configuration instructions.
 * **OpenAPI / Swagger Specifications:** Full API documentation for every REST service, including request/response schemas and representative JSON examples.
 * **Published Containers:** Ready-to-run Docker images hosted on **GHCR**.
 * **Technical Report (Max 3 Pages):** Concise document covering problem statement, layered architecture diagram, the two Process-Centric orchestration workflows (Grocery Orchestrator and SSO Authentication), external services, and reproducible deployment instructions.
