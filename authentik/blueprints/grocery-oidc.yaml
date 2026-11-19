@@ -1,0 +1,41 @@
+# Authentik blueprint: creates the OIDC provider and application at every startup.
+version: 1
+metadata:
+  name: Grocery List Manager - OIDC
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  # OAuth2/OIDC provider used by grocery-sso-service
+  - model: authentik_providers_oauth2.oauth2provider
+    id: grocery-provider
+    identifiers:
+      name: grocery-sso-provider
+    attrs:
+      # Confidential: the client runs server-side, so it can keep a secret
+      client_type: confidential
+      client_id: grocery-sso
+      # The secret comes from .env (environment variable), it is not written here
+      client_secret: !Env AUTHENTIK_OIDC_CLIENT_SECRET
+      # Authentik's built-in flows for login and logout
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      # Certificate used by Authentik to sign the JWTs
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      # Token "sub" = user id (stable, does not change if the username changes)
+      sub_mode: user_id
+      # Only address Authentik may redirect the user to after login
+      redirect_uris:
+        - matching_mode: strict
+          url: http://localhost:8002/auth/callback
+      # Scopes the client is allowed to request
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, profile]]
+        - !Find [authentik_providers_oauth2.scopemapping, [scope_name, email]]
+  # Application linked to the provider (the slug appears in the discovery URL)
+  - model: authentik_core.application
+    identifiers:
+      slug: grocery
+    attrs:
+      name: Grocery List Manager
+      provider: !KeyOf grocery-provider
