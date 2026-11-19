@@ -39,3 +39,5 @@ entries:
     attrs:
       name: Grocery List Manager
       provider: !KeyOf grocery-provider
+      # URL opened by the application tile in Authentik: starts the login flow
+      meta_launch_url: http://localhost:8002/auth/login
