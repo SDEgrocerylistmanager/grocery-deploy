@@ -6,7 +6,7 @@
 |---|---|
 | `docker-compose.yml` | The services started by `docker compose up` |
 | `.env.example` | Template of the configuration (copy it to `.env`) |
-| `databaseinit/01_schema.sql` | PostgreSQL schema, run automatically the first time the database starts |
+| `database/init/01_schema.sql` | PostgreSQL schema, run automatically the first time the database starts |
 | `databasequeries_reference.sql` | Reference SQL for the backend developers (not run automatically) |
 | `authentik/blueprints/grocery-oidc.yaml` | Authentik blueprint: creates the OIDC provider and application |
 
@@ -14,7 +14,7 @@
 
 | Service | Image | Port | Role |
 |---|---|---|---|
-| `postgres` | `postgres:16` | 5432 | Database of the application (schema from `databaseinit/`) |
+| `postgres` | `postgres:16` | 5432 | Database of the application (schema from `database/init/`) |
 | `authentik-db` | `postgres:16` | – | Database of Authentik only (not exposed) |
 | `authentik-server` | `ghcr.io/goauthentik/server` | 9000, 9443 | SSO provider: login pages and OIDC endpoints |
 | `authentik-worker` | `ghcr.io/goauthentik/server` | – | Authentik background tasks, applies the blueprint |
