@@ -68,6 +68,30 @@ services:
       authentik-db:
         condition: service_healthy
 
+  # Process-centric service: OIDC login with Authentik and JWT validation
+  grocery-sso-service:
+    image: ghcr.io/sdegrocerylistmanager/grocery-sso-service:latest
+    container_name: grocery-sso-service
+    environment:
+      OIDC_CLIENT_SECRET: ${AUTHENTIK_OIDC_CLIENT_SECRET:?set AUTHENTIK_OIDC_CLIENT_SECRET in .env}
+      OIDC_CLIENT_ID: grocery-sso
+      # Opened by the browser, so it must use localhost
+      OIDC_AUTHORIZE_URL: http://localhost:9000/application/o/authorize/
+      OIDC_REDIRECT_URI: http://localhost:8002/auth/callback
+      # Called by the service inside the Docker network
+      OIDC_TOKEN_URL: http://authentik-server:9000/application/o/token/
+      OIDC_JWKS_URL: http://authentik-server:9000/application/o/grocery/jwks/
+      # Authentik builds "iss" from the host of the request: the service asks
+      # for tokens as authentik-server, so that is the issuer to expect
+      OIDC_ISSUER: http://authentik-server:9000/application/o/grocery/
+      # Optional: where the user lands after login (empty = JSON response)
+      FRONTEND_URL: ${FRONTEND_URL:-}
+    ports:
+      - "8002:8002"
+    depends_on:
+      authentik-server:
+        condition: service_healthy
+
 volumes:
   pgdata:
   authentik_pgdata:
