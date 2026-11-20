@@ -18,80 +18,79 @@ services:
       retries: 10
 
   # Authentik's own database, separate from the application one
-  #authentik-db:
-  #  image: postgres:16
-  #  container_name: grocery-authentik-db
-  #  environment:
-  #    POSTGRES_DB: ${AUTHENTIK_DB:-authentik}
-  #    POSTGRES_USER: ${AUTHENTIK_DB_USER:-authentik}
-  #    POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
-  #  volumes:
-  #    - authentik_pgdata:/var/lib/postgresql/data
-  #  healthcheck:
-  #    test: ["CMD-SHELL", "pg_isready -U ${AUTHENTIK_DB_USER:-authentik} -d ${AUTHENTIK_DB:-authentik}"]
-  #    interval: 5s
-  #    timeout: 3s
-  #    retries: 10
-#
-  ## Authentik web server (login and API) on http://localhost:9000
-  #authentik-server:
-  #  image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2025.10.0}
-  #  container_name: grocery-authentik-server
-  #  command: server
-  #  # Variables are shared with the worker through the &authentik-env anchor
-  #  environment: &authentik-env
-  #    AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
-  #    AUTHENTIK_POSTGRESQL__HOST: authentik-db
-  #    AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB:-authentik}
-  #    AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER:-authentik}
-  #    AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
-  #    AUTHENTIK_OIDC_CLIENT_SECRET: ${AUTHENTIK_OIDC_CLIENT_SECRET:?set AUTHENTIK_OIDC_CLIENT_SECRET in .env}
-  #  ports:
-  #    - "9000:9000"
-  #    - "9443:9443"
-  #  volumes:
-  #    # Blueprints with the OIDC configuration, applied at startup
-  #    - ./authentik/blueprints:/blueprints/custom:ro
-  #  depends_on:
-  #    authentik-db:
-  #      condition: service_healthy
-#
-  ## Authentik worker: runs background tasks, including blueprints
-  #authentik-worker:
-  #  image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2025.10.0}
-  #  container_name: grocery-authentik-worker
-  #  command: worker
-  #  environment: *authentik-env
-  #  volumes:
-  #    - ./authentik/blueprints:/blueprints/custom:ro
-  #  depends_on:
-  #    authentik-db:
-  #      condition: service_healthy
+  authentik-db:
+    image: postgres:16
+    container_name: grocery-authentik-db
+    environment:
+      POSTGRES_DB: ${AUTHENTIK_DB:-authentik}
+      POSTGRES_USER: ${AUTHENTIK_DB_USER:-authentik}
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
+    volumes:
+      - authentik_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTHENTIK_DB_USER:-authentik} -d ${AUTHENTIK_DB:-authentik}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
+  # Authentik web server (login and API) on http://localhost:9000
+  authentik-server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2025.10.0}
+    container_name: grocery-authentik-server
+    command: server
+    # Variables are shared with the worker through the &authentik-env anchor
+    environment: &authentik-env
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
+      AUTHENTIK_OIDC_CLIENT_SECRET: ${AUTHENTIK_OIDC_CLIENT_SECRET:?set AUTHENTIK_OIDC_CLIENT_SECRET in .env}
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    volumes:
+      # Blueprints with the OIDC configuration, applied at startup
+      - ./authentik/blueprints:/blueprints/custom:ro
+    depends_on:
+      authentik-db:
+        condition: service_healthy
+
+  # Authentik worker: runs background tasks, including blueprints
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2025.10.0}
+    container_name: grocery-authentik-worker
+    command: worker
+    environment: *authentik-env
+    volumes:
+      - ./authentik/blueprints:/blueprints/custom:ro
+    depends_on:
+      authentik-db:
+        condition: service_healthy
   # Process-centric service: OIDC login with Authentik and JWT validation
-  #grocery-sso-service:
-  #  image: ghcr.io/sdegrocerylistmanager/grocery-sso-service:latest
-  #  container_name: grocery-sso-service
-  #  environment:
-  #    OIDC_CLIENT_SECRET: ${AUTHENTIK_OIDC_CLIENT_SECRET:?set AUTHENTIK_OIDC_CLIENT_SECRET in .env}
-  #    OIDC_CLIENT_ID: grocery-sso
-  #    # Opened by the browser, so it must use localhost
-  #    OIDC_AUTHORIZE_URL: http://localhost:9000/application/o/authorize/
-  #    OIDC_REDIRECT_URI: http://localhost:8002/auth/callback
-  #    # Called by the service inside the Docker network
-  #    OIDC_TOKEN_URL: http://authentik-server:9000/application/o/token/
-  #    OIDC_JWKS_URL: http://authentik-server:9000/application/o/grocery/jwks/
-  #    # Authentik builds "iss" from the host of the request: the service asks
-  #    # for tokens as authentik-server, so that is the issuer to expect
-  #    OIDC_ISSUER: http://authentik-server:9000/application/o/grocery/
-  #    # Optional: where the user lands after login (empty = JSON response)
-  #    FRONTEND_URL: ${FRONTEND_URL:-}
-  #  ports:
-  #    - "8002:8002"
-  #  depends_on:
-  #    authentik-server:
-  #      condition: service_healthy
+  grocery-sso-service:
+    image: ghcr.io/sdegrocerylistmanager/grocery-sso-service:latest
+    container_name: grocery-sso-service
+    environment:
+      OIDC_CLIENT_SECRET: ${AUTHENTIK_OIDC_CLIENT_SECRET:?set AUTHENTIK_OIDC_CLIENT_SECRET in .env}
+      OIDC_CLIENT_ID: grocery-sso
+      # Opened by the browser, so it must use localhost
+      OIDC_AUTHORIZE_URL: http://localhost:9000/application/o/authorize/
+      OIDC_REDIRECT_URI: http://localhost:8002/auth/callback
+      # Called by the service inside the Docker network
+      OIDC_TOKEN_URL: http://authentik-server:9000/application/o/token/
+      OIDC_JWKS_URL: http://authentik-server:9000/application/o/grocery/jwks/
+      # Authentik builds "iss" from the host of the request: the service asks
+      # for tokens as authentik-server, so that is the issuer to expect
+      OIDC_ISSUER: http://authentik-server:9000/application/o/grocery/
+      # Optional: where the user lands after login (empty = JSON response)
+      FRONTEND_URL: ${FRONTEND_URL:-}
+    ports:
+      - "8002:8002"
+    depends_on:
+      authentik-server:
+        condition: service_healthy
 
 volumes:
   pgdata:
-  #authentik_pgdata:
+  authentik_pgdata:
