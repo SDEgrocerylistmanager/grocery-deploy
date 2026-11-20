@@ -15,9 +15,9 @@
 | Service | Image | Port | Role |
 |---|---|---|---|
 | `postgres` | `postgres:16` | 5432 | Database of the application (schema from `database/init/`) |
-| `authentik-db` | `postgres:16` | – | Database of Authentik only (not exposed) |
+| `authentik-db` | `postgres:16` | - | Database of Authentik only (not exposed) |
 | `authentik-server` | `ghcr.io/goauthentik/server` | 9000, 9443 | SSO provider: login pages and OIDC endpoints |
-| `authentik-worker` | `ghcr.io/goauthentik/server` | – | Authentik background tasks, applies the blueprint |
+| `authentik-worker` | `ghcr.io/goauthentik/server` | - | Authentik background tasks, applies the blueprint |
 
 The application services (orchestrator, backend, categorizer, adapters, frontend and
 `grocery-sso-service`) are added to the compose file as their images get published on
