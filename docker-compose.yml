@@ -91,6 +91,15 @@ services:
       authentik-server:
         condition: service_healthy
 
+  # Business logic service: assigns grocery items to supermarket departments.
+  # Internal only: no published port, other services reach it at http://grocery-categorizer:8003
+  grocery-categorizer:
+    image: ghcr.io/sdegrocerylistmanager/grocery-categorizer:latest
+    container_name: grocery-categorizer
+    environment:
+      # Optional: without a key only the local keyword rules are used
+      USDA_API_KEY: ${USDA_API_KEY:-}
+
 volumes:
   pgdata:
   authentik_pgdata:
