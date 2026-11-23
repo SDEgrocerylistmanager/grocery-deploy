@@ -119,6 +119,33 @@ services:
       postgres:
         condition: service_healthy
 
+  # Adapter to the Telegram Bot API. It has no authentication, so it is internal only:
+  # no published port, the orchestrator reaches it at http://grocery-telegram-adapter:8005
+  grocery-telegram-adapter:
+    image: ghcr.io/sdegrocerylistmanager/grocery-telegram-adapter:latest
+    container_name: grocery-telegram-adapter
+    # Only the variables it needs, not the whole .env
+    environment:
+      # Optional: without it the stack starts, but sending answers 503
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+
+  # Process-centric service: the only entry point of the frontend.
+  # Composes SSO, backend, categorizer and Telegram adapter; it needs no secret.
+  grocery-orchestrator:
+    image: ghcr.io/sdegrocerylistmanager/grocery-orchestrator:latest
+    container_name: grocery-orchestrator
+    environment:
+      SSO_URL: http://grocery-sso-service:8002
+      BACKEND_URL: http://db-backend:8080
+      CATEGORIZER_URL: http://grocery-categorizer:8003
+      TELEGRAM_ADAPTER_URL: http://grocery-telegram-adapter:8005
+    ports:
+      - "8004:8004"
+    depends_on:
+      - grocery-sso-service
+      - db-backend
+      - grocery-categorizer
+      - grocery-telegram-adapter
 
 volumes:
   pgdata:
