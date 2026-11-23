@@ -1,5 +1,10 @@
+# Authentik reads its database settings only from AUTHENTIK_POSTGRESQL__* names:
+# translate the AUTHENTIK_DB_* values of .env (otherwise it uses user "authentik" with no password)
 x-authentik-env: &authentik-env
   AUTHENTIK_POSTGRESQL__HOST: authentik-db
+  AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB:-authentik}
+  AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER:-authentik}
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
 
 services:
   postgres:
@@ -22,8 +27,12 @@ services:
   authentik-db:
     image: postgres:16
     container_name: grocery-authentik-db
-    env_file:
-      - .env
+    # Not env_file: .env holds the POSTGRES_* of the application database, which would
+    # create this database with the wrong name, user and password on a fresh volume
+    environment:
+      POSTGRES_DB: ${AUTHENTIK_DB:-authentik}
+      POSTGRES_USER: ${AUTHENTIK_DB_USER:-authentik}
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
     volumes:
       - authentik_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -101,11 +110,42 @@ services:
     container_name: db-backend
     env_file:
       - .env
+    environment:
+      # Inside Docker "localhost" is the container itself: reach the database by service name
+      POSTGRES_HOST: postgres
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Adapter to the Telegram Bot API. It has no authentication, so it is internal only:
+  # no published port, the orchestrator reaches it at http://grocery-telegram-adapter:8005
+  grocery-telegram-adapter:
+    image: ghcr.io/sdegrocerylistmanager/grocery-telegram-adapter:latest
+    container_name: grocery-telegram-adapter
+    # Only the variables it needs, not the whole .env
+    environment:
+      # Optional: without it the stack starts, but sending answers 503
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+
+  # Process-centric service: the only entry point of the frontend.
+  # Composes SSO, backend, categorizer and Telegram adapter; it needs no secret.
+  grocery-orchestrator:
+    image: ghcr.io/sdegrocerylistmanager/grocery-orchestrator:latest
+    container_name: grocery-orchestrator
+    environment:
+      SSO_URL: http://grocery-sso-service:8002
+      BACKEND_URL: http://db-backend:8080
+      CATEGORIZER_URL: http://grocery-categorizer:8003
+      TELEGRAM_ADAPTER_URL: http://grocery-telegram-adapter:8005
+    ports:
+      - "8004:8004"
+    depends_on:
+      - grocery-sso-service
+      - db-backend
+      - grocery-categorizer
+      - grocery-telegram-adapter
 
 volumes:
   pgdata:

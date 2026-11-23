@@ -18,11 +18,21 @@
 | `authentik-db` | `postgres:16` | - | Database of Authentik only (not exposed) |
 | `authentik-server` | `ghcr.io/goauthentik/server` | 9000, 9443 | SSO provider: login pages and OIDC endpoints |
 | `authentik-worker` | `ghcr.io/goauthentik/server` | - | Authentik background tasks, applies the blueprint |
+| `grocery-sso-service` | `ghcr.io/sdegrocerylistmanager/grocery-sso-service` | 8002 | OIDC login with Authentik and JWT validation |
+| `db-backend` | `ghcr.io/sdegrocerylistmanager/db-backend` | 8080 | REST API over the application database |
 | `grocery-categorizer` | `ghcr.io/sdegrocerylistmanager/grocery-categorizer` | - | Assigns items to supermarket departments (internal, port 8003 only inside Docker) |
+| `grocery-telegram-adapter` | `ghcr.io/sdegrocerylistmanager/grocery-telegram-adapter` | - | Sends messages with the Telegram bot (internal, port 8005 only inside Docker, no authentication) |
+| `grocery-orchestrator` | `ghcr.io/sdegrocerylistmanager/grocery-orchestrator` | 8004 | Entry point of the frontend: composes SSO, backend, categorizer and Telegram adapter |
 
-The application services (orchestrator, backend, categorizer, adapters, frontend and
-`grocery-sso-service`) are added to the compose file as their images get published on
-`ghcr.io/sdegrocerylistmanager/<service>:latest`. Each one has its own repository with its own CI.
+The remaining services (healthcheck adapter, frontend) are added to the compose file as their
+images get published on `ghcr.io/sdegrocerylistmanager/<service>:latest`. Each one has its own
+repository with its own CI.
+
+**Apple Silicon:** the `db-backend` image is published for `linux/amd64` only, so
+`docker compose pull` fails with `no matching manifest for linux/arm64`. Until it is published
+for both platforms, pull it once with
+`docker pull --platform linux/amd64 ghcr.io/sdegrocerylistmanager/db-backend:latest`
+(it then runs under emulation).
 
 ## Quick start
 
@@ -43,6 +53,8 @@ docker compose ps           # wait until the containers are "healthy"
 | `AUTHENTIK_SECRET_KEY` | Secret used by Authentik to sign its own data. Generate it with `openssl rand -base64 60 \| tr -d "\n"` |
 | `AUTHENTIK_OIDC_CLIENT_SECRET` | Secret of the OIDC client used by `grocery-sso-service`. Generate it with `openssl rand -hex 32` |
 | `AUTHENTIK_TAG` | Authentik version (default `2025.10.0`) |
+| `USDA_API_KEY` | Optional, categorizer: USDA FoodData Central key |
+| `TELEGRAM_BOT_TOKEN` | Optional, Telegram adapter: token of the bot from @BotFather (without it sharing answers `503`) |
 
 `.env` is ignored by git: never commit it. Compose refuses to start if a required secret is missing.
 
