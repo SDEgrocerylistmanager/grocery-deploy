@@ -1,5 +1,10 @@
+# Authentik reads its database settings only from AUTHENTIK_POSTGRESQL__* names:
+# translate the AUTHENTIK_DB_* values of .env (otherwise it uses user "authentik" with no password)
 x-authentik-env: &authentik-env
   AUTHENTIK_POSTGRESQL__HOST: authentik-db
+  AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB:-authentik}
+  AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER:-authentik}
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
 
 services:
   postgres:
@@ -22,8 +27,12 @@ services:
   authentik-db:
     image: postgres:16
     container_name: grocery-authentik-db
-    env_file:
-      - .env
+    # Not env_file: .env holds the POSTGRES_* of the application database, which would
+    # create this database with the wrong name, user and password on a fresh volume
+    environment:
+      POSTGRES_DB: ${AUTHENTIK_DB:-authentik}
+      POSTGRES_USER: ${AUTHENTIK_DB_USER:-authentik}
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
     volumes:
       - authentik_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -101,11 +110,15 @@ services:
     container_name: db-backend
     env_file:
       - .env
+    environment:
+      # Inside Docker "localhost" is the container itself: reach the database by service name
+      POSTGRES_HOST: postgres
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+
 
 volumes:
   pgdata:
