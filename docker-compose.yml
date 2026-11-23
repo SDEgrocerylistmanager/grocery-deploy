@@ -93,9 +93,8 @@ services:
   grocery-categorizer:
     image: ghcr.io/sdegrocerylistmanager/grocery-categorizer:latest
     container_name: grocery-categorizer
-    environment:
-      # Optional: without a key only the local keyword rules are used
-      USDA_API_KEY: ${USDA_API_KEY:-}
+    env_file:
+      - .env
 
   db-backend:
     image: ghcr.io/sdegrocerylistmanager/db-backend:latest
