@@ -1,11 +1,12 @@
+x-authentik-env: &authentik-env
+  AUTHENTIK_POSTGRESQL__HOST: authentik-db
+
 services:
   postgres:
     image: postgres:16
     container_name: grocery-postgres
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-grocery}
-      POSTGRES_USER: ${POSTGRES_USER:-grocery}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    env_file:
+      - .env
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/init:/docker-entrypoint-initdb.d:ro
@@ -21,10 +22,8 @@ services:
   authentik-db:
     image: postgres:16
     container_name: grocery-authentik-db
-    environment:
-      POSTGRES_DB: ${AUTHENTIK_DB:-authentik}
-      POSTGRES_USER: ${AUTHENTIK_DB_USER:-authentik}
-      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:?set AUTHENTIK_DB_PASSWORD in .env}
+    env_file:
+      - .env
     volumes:
       - authentik_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -39,13 +38,9 @@ services:
     container_name: grocery-authentik-server
     command: server
     # Variables are shared with the worker through the &authentik-env anchor
-    environment: &authentik-env
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env}
-      AUTHENTIK_POSTGRESQL__HOST: authentik-db
-      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB:-authentik}
-      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER:-authentik}
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD}
-      AUTHENTIK_OIDC_CLIENT_SECRET: ${AUTHENTIK_OIDC_CLIENT_SECRET:?set AUTHENTIK_OIDC_CLIENT_SECRET in .env}
+    env_file:
+      - .env
+    environment: *authentik-env
     ports:
       - "9000:9000"
       - "9443:9443"
@@ -61,6 +56,8 @@ services:
     image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2025.10.0}
     container_name: grocery-authentik-worker
     command: worker
+    env_file:
+      - .env
     environment: *authentik-env
     volumes:
       - ./authentik/blueprints:/blueprints/custom:ro
@@ -89,6 +86,17 @@ services:
       - "8002:8002"
     depends_on:
       authentik-server:
+        condition: service_healthy
+
+  db-backend:
+    image: ghcr.io/sdegrocerylistmanager/db-backend:latest
+    container_name: db-backend
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
         condition: service_healthy
 
 volumes:
